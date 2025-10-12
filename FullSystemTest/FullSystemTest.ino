@@ -6,13 +6,13 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_TSL2561_U.h>
 #include <Servo.h>
-#include "../config.h"
+#include "config.h"
 
 // =============================================================================
-// INTELLIGENT ADAPTIVE PLANT CARE SYSTEM
+// FULL SYSTEM TEST - WITH WEATHER API & WEBHOOK INTEGRATION
 // =============================================================================
-// Main system integrating all sensors, actuators, weather API, and notifications
-// for automated care of 2 plants
+// Test complete system intelligence including weather and notifications
+// Hardware: Soil sensor, Lux sensor, Rain sensor, Servo motor
 
 // =============================================================================
 // SENSOR OBJECTS
@@ -21,7 +21,6 @@ Adafruit_TSL2561_Unified tsl = Adafruit_TSL2561_Unified(TSL2561_ADDR_FLOAT, 1234
 
 // Sensor readings
 int soilMoisture1 = 0;
-int soilMoisture2 = 0;
 float currentLux = 0;
 int rainValue = 1023;
 bool rainDetected = false;
@@ -32,35 +31,11 @@ bool luxSensorAvailable = false;
 // =============================================================================
 Servo shadeServo;
 int currentShadePosition = SHADE_POSITION_OFF;
-bool pumpRunning = false;
-bool valve1Open = false;
-bool valve2Open = false;
 
 // =============================================================================
 // NETWORK OBJECTS
 // =============================================================================
 WiFiSSLClient sslClient;
-WeatherData currentWeather;
-
-// =============================================================================
-// TIMING VARIABLES
-// =============================================================================
-unsigned long lastSensorUpdate = 0;
-unsigned long lastWeatherUpdate = 0;
-unsigned long lastStatusReport = 0;
-unsigned long lastWateringTime1 = 0;  // Track last watering for Plant 1
-unsigned long lastWateringTime2 = 0;  // Track last watering for Plant 2
-unsigned long pumpStartTime = 0;
-unsigned long wateringStartTime1 = 0;
-unsigned long wateringStartTime2 = 0;
-
-// =============================================================================
-// SYSTEM STATE
-// =============================================================================
-bool systemInitialized = false;
-bool wifiConnected = false;
-bool currentlyWatering1 = false;
-bool currentlyWatering2 = false;
 
 // Weather data structure
 struct WeatherData {
@@ -69,6 +44,22 @@ struct WeatherData {
   String description;
   bool isValid;
 };
+
+WeatherData currentWeather;
+
+// =============================================================================
+// TIMING VARIABLES
+// =============================================================================
+unsigned long lastSensorUpdate = 0;
+unsigned long lastWeatherUpdate = 0;
+unsigned long lastStatusReport = 0;
+unsigned long lastWateringTime1 = 0;
+
+// =============================================================================
+// SYSTEM STATE
+// =============================================================================
+bool systemInitialized = false;
+bool wifiConnected = false;
 
 // =============================================================================
 // FUNCTION DECLARATIONS
@@ -84,27 +75,19 @@ void updateAllSensors();
 int readSoilMoisture(int pin);
 void updateLuxReading();
 void updateRainReading();
-bool isDry(int plantNum);
-bool isWet(int plantNum);
-bool isOptimal(int plantNum);
+bool isDry();
+bool isWet();
+bool isOptimal();
 bool isHighLight();
 bool isRaining();
 
 // Actuator functions
 void deployShade();
 void retractShade();
-void pumpOn();
-void pumpOff();
-void openValve(int plantNum);
-void closeValve(int plantNum);
-void closeAllValves();
-void checkPumpSafety();
 
 // Plant care logic
-void processPlant(int plantNum);
-void waterPlant(int plantNum);
-void stopWatering(int plantNum);
-bool canWaterPlant(int plantNum);
+void processPlant();
+bool canWaterPlant();
 
 // Weather API
 bool updateWeather();
@@ -116,21 +99,22 @@ void sendStatusUpdate();
 
 // Utilities
 void printSystemStatus();
+void printSensorReadings();
 
 // =============================================================================
 // SETUP
 // =============================================================================
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
-  delay(2000);  // Give Serial time to initialize
+  delay(2000);
   
   Serial.println("\n\n===============================================");
-  Serial.println("  INTELLIGENT ADAPTIVE PLANT CARE SYSTEM");
+  Serial.println("  FULL SYSTEM TEST - WEATHER API & WEBHOOKS");
   Serial.println("===============================================\n");
   
   initSystem();
   
-  Serial.println("\n=== System Ready ===\n");
+  Serial.println("\n=== System Ready - Full Integration Test ===\n");
   printSystemStatus();
 }
 
@@ -143,16 +127,17 @@ void loop() {
   // Update all sensors periodically
   if (currentTime - lastSensorUpdate >= MAIN_LOOP_INTERVAL_MS) {
     updateAllSensors();
+    printSensorReadings();
     lastSensorUpdate = currentTime;
     
-    // Process each plant independently
-    processPlant(1);
-    processPlant(2);
+    // Process plant care logic with weather integration
+    processPlant();
   }
   
   // Update weather data periodically (every 5 minutes)
   if (currentTime - lastWeatherUpdate >= WEATHER_UPDATE_INTERVAL_MS) {
     if (wifiConnected) {
+      Serial.println("\n🌍 === WEATHER UPDATE ===");
       updateWeather();
     }
     lastWeatherUpdate = currentTime;
@@ -161,15 +146,12 @@ void loop() {
   // Send status update periodically (every 30 minutes)
   if (currentTime - lastStatusReport >= STATUS_UPDATE_INTERVAL_MS) {
     if (wifiConnected) {
+      Serial.println("\n📱 === STATUS REPORT ===");
       sendStatusUpdate();
     }
     lastStatusReport = currentTime;
   }
   
-  // Always check pump safety
-  checkPumpSafety();
-  
-  // Small delay to prevent excessive CPU usage
   delay(100);
 }
 
@@ -178,7 +160,7 @@ void loop() {
 // =============================================================================
 
 void initSystem() {
-  Serial.println("Initializing system...");
+  Serial.println("Initializing complete system...");
   
   // Initialize WiFi first
   wifiConnected = initWiFi();
@@ -193,16 +175,21 @@ void initSystem() {
   
   // Get initial weather data
   if (wifiConnected) {
+    Serial.println("\n🌤️ Getting initial weather data...");
     updateWeather();
-    sendNotification("Plant Care System started successfully!", 3);  // SUCCESS
+    
+    // Send startup notification
+    sendNotification("🚀 Plant Care System (Full Test) started successfully! Weather API and notifications active.", 3);
+  } else {
+    Serial.println("⚠️ WiFi not connected - Weather API and notifications disabled");
   }
   
   systemInitialized = true;
-  Serial.println("System initialization complete!");
+  Serial.println("✅ Complete system initialization finished!");
 }
 
 bool initWiFi() {
-  Serial.print("Connecting to WiFi");
+  Serial.print("🌐 Connecting to WiFi");
   
   unsigned long startTime = millis();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -214,28 +201,27 @@ bool initWiFi() {
   }
   
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println(" Connected!");
-    Serial.print("IP Address: ");
+    Serial.println(" ✅ Connected!");
+    Serial.print("📡 IP Address: ");
     Serial.println(WiFi.localIP());
     return true;
   } else {
-    Serial.println(" Failed!");
-    Serial.println("System will operate without WiFi features.");
+    Serial.println(" ❌ Failed!");
+    Serial.println("System will operate without network features.");
     return false;
   }
 }
 
 bool initSensors() {
-  Serial.println("\nInitializing sensors...");
+  Serial.println("\n🔧 Initializing sensors...");
   bool allSuccess = true;
   
-  // Soil moisture sensors
+  // Soil moisture sensor
   pinMode(SOIL_MOISTURE_PIN_1, INPUT);
-  pinMode(SOIL_MOISTURE_PIN_2, INPUT);
-  Serial.println("  [OK] Soil moisture sensors");
+  Serial.println("  ✅ Soil moisture sensor (Pin A0)");
   
   // Lux sensor (I2C)
-  Serial.print("  Initializing lux sensor...");
+  Serial.print("  🔍 Initializing lux sensor (I2C)...");
   int attempts = 0;
   while (!tsl.begin() && attempts < 5) {
     attempts++;
@@ -246,15 +232,15 @@ bool initSensors() {
     tsl.enableAutoRange(true);
     tsl.setIntegrationTime(TSL2561_INTEGRATIONTIME_402MS);
     luxSensorAvailable = true;
-    Serial.println(" [OK]");
+    Serial.println(" ✅");
   } else {
-    Serial.println(" [FAILED]");
+    Serial.println(" ❌ Check I2C wiring (SDA=A4, SCL=A5)");
     allSuccess = false;
   }
   
   // Rain sensor
   pinMode(RAIN_SENSOR_PIN, INPUT);
-  Serial.println("  [OK] Rain sensor");
+  Serial.println("  ✅ Rain sensor (Pin A2)");
   
   // Take initial readings
   updateAllSensors();
@@ -263,29 +249,17 @@ bool initSensors() {
 }
 
 void initActuators() {
-  Serial.println("\nInitializing actuators...");
+  Serial.println("\n⚙️ Initializing actuators...");
   
   // Servo motor
   shadeServo.attach(SERVO_PIN);
   shadeServo.write(SHADE_POSITION_OFF);
   currentShadePosition = SHADE_POSITION_OFF;
   delay(500);
-  Serial.println("  [OK] Servo motor (shade)");
+  Serial.println("  ✅ Servo motor (Pin 9) - Shade mechanism");
   
-  // Water pump
-  pinMode(WATER_PUMP_PIN, OUTPUT);
-  digitalWrite(WATER_PUMP_PIN, LOW);
-  pumpRunning = false;
-  Serial.println("  [OK] Water pump");
-  
-  // Solenoid valves
-  pinMode(SOLENOID_VALVE_1_PIN, OUTPUT);
-  pinMode(SOLENOID_VALVE_2_PIN, OUTPUT);
-  digitalWrite(SOLENOID_VALVE_1_PIN, LOW);
-  digitalWrite(SOLENOID_VALVE_2_PIN, LOW);
-  valve1Open = false;
-  valve2Open = false;
-  Serial.println("  [OK] Solenoid valves");
+  Serial.println("  ⏸️ Water pump (TEST MODE - Simulated)");
+  Serial.println("  ⏸️ Solenoid valves (TEST MODE - Simulated)");
 }
 
 // =============================================================================
@@ -293,31 +267,9 @@ void initActuators() {
 // =============================================================================
 
 void updateAllSensors() {
-  // Update soil moisture
   soilMoisture1 = readSoilMoisture(SOIL_MOISTURE_PIN_1);
-  soilMoisture2 = readSoilMoisture(SOIL_MOISTURE_PIN_2);
-  
-  // Update lux
   updateLuxReading();
-  
-  // Update rain
   updateRainReading();
-  
-  if (DEBUG_MODE) {
-    Serial.println("\n--- Sensor Readings ---");
-    Serial.print("Plant 1 Moisture: ");
-    Serial.print(soilMoisture1);
-    Serial.println("%");
-    Serial.print("Plant 2 Moisture: ");
-    Serial.print(soilMoisture2);
-    Serial.println("%");
-    Serial.print("Light Level: ");
-    Serial.print(currentLux);
-    Serial.println(" lux");
-    Serial.print("Rain: ");
-    Serial.println(rainDetected ? "YES" : "NO");
-    Serial.println("-----------------------\n");
-  }
 }
 
 int readSoilMoisture(int pin) {
@@ -345,19 +297,16 @@ void updateRainReading() {
   rainDetected = (rainValue < RAIN_THRESHOLD);
 }
 
-bool isDry(int plantNum) {
-  int moisture = (plantNum == 1) ? soilMoisture1 : soilMoisture2;
-  return moisture < SOIL_MOISTURE_THRESHOLD_DRY;
+bool isDry() {
+  return soilMoisture1 < SOIL_MOISTURE_THRESHOLD_DRY;
 }
 
-bool isWet(int plantNum) {
-  int moisture = (plantNum == 1) ? soilMoisture1 : soilMoisture2;
-  return moisture > SOIL_MOISTURE_THRESHOLD_WET;
+bool isWet() {
+  return soilMoisture1 > SOIL_MOISTURE_THRESHOLD_WET;
 }
 
-bool isOptimal(int plantNum) {
-  int moisture = (plantNum == 1) ? soilMoisture1 : soilMoisture2;
-  return moisture >= SOIL_MOISTURE_THRESHOLD_DRY && moisture <= SOIL_MOISTURE_THRESHOLD_WET;
+bool isOptimal() {
+  return soilMoisture1 >= SOIL_MOISTURE_THRESHOLD_DRY && soilMoisture1 <= SOIL_MOISTURE_THRESHOLD_WET;
 }
 
 bool isHighLight() {
@@ -374,260 +323,145 @@ bool isRaining() {
 
 void deployShade() {
   if (currentShadePosition != SHADE_POSITION_ON) {
-    Serial.println("[ACTION] Deploying shade...");
+    Serial.println("🏠 [ACTION] Deploying shade...");
     
-    // Smooth movement
     for (int pos = currentShadePosition; pos <= SHADE_POSITION_ON; pos++) {
       shadeServo.write(pos);
       delay(SERVO_SPEED_DELAY_MS);
     }
     
     currentShadePosition = SHADE_POSITION_ON;
-    Serial.println("[ACTION] Shade deployed");
+    Serial.println("🏠 [ACTION] Shade deployed (90°)");
   }
 }
 
 void retractShade() {
   if (currentShadePosition != SHADE_POSITION_OFF) {
-    Serial.println("[ACTION] Retracting shade...");
+    Serial.println("☀️ [ACTION] Retracting shade...");
     
-    // Smooth movement
     for (int pos = currentShadePosition; pos >= SHADE_POSITION_OFF; pos--) {
       shadeServo.write(pos);
       delay(SERVO_SPEED_DELAY_MS);
     }
     
     currentShadePosition = SHADE_POSITION_OFF;
-    Serial.println("[ACTION] Shade retracted");
-  }
-}
-
-void pumpOn() {
-  if (!pumpRunning) {
-    digitalWrite(WATER_PUMP_PIN, HIGH);
-    pumpRunning = true;
-    pumpStartTime = millis();
-    Serial.println("[PUMP] ON");
-  }
-}
-
-void pumpOff() {
-  if (pumpRunning) {
-    digitalWrite(WATER_PUMP_PIN, LOW);
-    pumpRunning = false;
-    Serial.println("[PUMP] OFF");
-  }
-}
-
-void openValve(int plantNum) {
-  if (plantNum == 1 && !valve1Open) {
-    digitalWrite(SOLENOID_VALVE_1_PIN, HIGH);
-    valve1Open = true;
-    Serial.println("[VALVE] Plant 1 valve OPEN");
-  } else if (plantNum == 2 && !valve2Open) {
-    digitalWrite(SOLENOID_VALVE_2_PIN, HIGH);
-    valve2Open = true;
-    Serial.println("[VALVE] Plant 2 valve OPEN");
-  }
-}
-
-void closeValve(int plantNum) {
-  if (plantNum == 1 && valve1Open) {
-    digitalWrite(SOLENOID_VALVE_1_PIN, LOW);
-    valve1Open = false;
-    Serial.println("[VALVE] Plant 1 valve CLOSED");
-  } else if (plantNum == 2 && valve2Open) {
-    digitalWrite(SOLENOID_VALVE_2_PIN, LOW);
-    valve2Open = false;
-    Serial.println("[VALVE] Plant 2 valve CLOSED");
-  }
-}
-
-void closeAllValves() {
-  closeValve(1);
-  closeValve(2);
-}
-
-void checkPumpSafety() {
-  if (pumpRunning) {
-    unsigned long runTime = millis() - pumpStartTime;
-    
-    if (runTime >= WATER_PUMP_MAX_DURATION_MS) {
-      Serial.println("[PUMP] SAFETY TIMEOUT!");
-      pumpOff();
-      closeAllValves();
-      currentlyWatering1 = false;
-      currentlyWatering2 = false;
-      
-      if (wifiConnected) {
-        sendNotification("ALERT: Pump safety timeout triggered!", 2);  // CRITICAL
-      }
-    }
+    Serial.println("☀️ [ACTION] Shade retracted (0°)");
   }
 }
 
 // =============================================================================
-// PLANT CARE LOGIC
+// PLANT CARE LOGIC WITH WEATHER INTEGRATION
 // =============================================================================
 
-void processPlant(int plantNum) {
-  // Check if currently watering this plant
-  bool* currentlyWatering = (plantNum == 1) ? &currentlyWatering1 : &currentlyWatering2;
+void processPlant() {
+  Serial.println("\n🌱 === INTELLIGENT PLANT CARE DECISION ===");
   
-  if (*currentlyWatering) {
-    // Check if target moisture reached or timeout
-    int currentMoisture = (plantNum == 1) ? soilMoisture1 : soilMoisture2;
-    
-    if (currentMoisture >= SOIL_MOISTURE_THRESHOLD_TARGET) {
-      Serial.print("Plant ");
-      Serial.print(plantNum);
-      Serial.println(" reached target moisture!");
-      stopWatering(plantNum);
-      
-      if (wifiConnected) {
-        String msg = "Plant " + String(plantNum) + " watering complete. Moisture: " + 
-                     String(currentMoisture) + "%";
-        sendNotification(msg, 3);  // SUCCESS
-      }
-    }
-    return;  // Don't make other decisions while watering
-  }
-  
-  // WEATHER-ENHANCED DECISION TREE
+  // Weather-enhanced decision variables
   bool isVeryHot = (currentWeather.isValid && currentWeather.temperature > TEMP_THRESHOLD_HIGH);
   bool rainForecast = (currentWeather.isValid && 
                        (currentWeather.description.indexOf("rain") >= 0 || 
                         currentWeather.description.indexOf("drizzle") >= 0 ||
                         currentWeather.description.indexOf("shower") >= 0));
   
+  // Display weather context
+  if (currentWeather.isValid) {
+    Serial.print("🌡️ Weather Context: ");
+    Serial.print(currentWeather.temperature, 1);
+    Serial.print("°C, ");
+    Serial.print(currentWeather.description);
+    if (isVeryHot) Serial.print(" [VERY HOT!]");
+    if (rainForecast) Serial.print(" [RAIN FORECAST]");
+    Serial.println();
+  }
+  
   // Case A: Soil is DRY
-  if (isDry(plantNum)) {
-    Serial.print("Plant ");
-    Serial.print(plantNum);
-    Serial.println(" is DRY");
+  if (isDry()) {
+    Serial.println("🟤 Plant soil is DRY");
     
     if (isRaining()) {
-      // Let rain water the plant naturally
-      Serial.println("  -> Rain detected, retracting shade to allow natural watering");
+      Serial.println("🌧️  -> Rain detected, retracting shade to allow natural watering");
       retractShade();
-    } else if (rainForecast && canWaterPlant(plantNum)) {
-      // Rain coming soon, skip watering
-      Serial.println("  -> Rain forecast detected, skipping watering (rain expected)");
+      Serial.println("💧 [WATER DECISION] Skipping artificial watering (rain available)");
+    } else if (rainForecast && canWaterPlant()) {
+      Serial.println("🌦️  -> Rain forecast detected, skipping watering (rain expected)");
       retractShade();
+      Serial.println("💧 [WATER DECISION] Waiting for natural rain");
+      
+      // Send smart notification
+      if (wifiConnected) {
+        sendNotification("🌦️ Smart watering: Rain forecast detected, skipping irrigation to save water!", 0);
+      }
     } else {
-      // No rain, need to water manually
-      if (canWaterPlant(plantNum)) {
-        Serial.println("  -> No rain, initiating watering");
-        deployShade();  // Shade protects during watering
-        waterPlant(plantNum);
+      if (canWaterPlant()) {
+        Serial.println("☀️  -> No rain/forecast, would initiate watering");
+        deployShade();
+        Serial.println("💧 [WATER DECISION] Opening valve + starting pump (TEST MODE: SIMULATED)");
+        
+        // Simulate watering notification
+        if (wifiConnected) {
+          String msg = "💧 Watering Plant 1 started. Current moisture: " + String(soilMoisture1) + "%";
+          sendNotification(msg, 0);
+        }
+        
+        // Update last watering time (simulate)
+        lastWateringTime1 = millis();
       } else {
-        Serial.println("  -> Watering cooldown period active");
+        Serial.println("⏰ -> Watering cooldown period active");
       }
     }
   }
   
   // Case B: Soil is WET
-  else if (isWet(plantNum)) {
+  else if (isWet()) {
+    Serial.println("💙 Plant soil is WET");
+    
     if (isRaining()) {
-      // Protect from more rain to prevent overwatering
-      Serial.print("Plant ");
-      Serial.print(plantNum);
-      Serial.println(" is WET and raining - deploying shade");
+      Serial.println("🌧️  -> Rain detected, deploying shade to prevent overwatering");
       deployShade();
     } else if (isHighLight()) {
-      // Allow photosynthesis, no shade needed
-      Serial.print("Plant ");
-      Serial.print(plantNum);
-      Serial.println(" is WET with high light - retracting shade for photosynthesis");
+      Serial.println("☀️  -> High light detected, retracting shade for photosynthesis");
       retractShade();
     } else {
-      // Normal conditions, no shade needed
+      Serial.println("🌤️  -> Normal conditions, retracting shade");
       retractShade();
     }
   }
   
   // Case C: Soil is OPTIMAL
   else {
+    Serial.println("💚 Plant soil is OPTIMAL");
+    
     if (isRaining()) {
-      // Prevent going from optimal to wet
+      Serial.println("🌧️  -> Rain detected, deploying shade to maintain optimal moisture");
       deployShade();
     } else if (isHighLight() || isVeryHot) {
-      // Protect from intense sun or very hot weather
-      Serial.print("Plant ");
-      Serial.print(plantNum);
       if (isVeryHot) {
-        Serial.print(" - Very hot weather (");
-        Serial.print(currentWeather.temperature);
-        Serial.println("°C), deploying shade");
+        Serial.print("🔥 -> Very hot weather (");
+        Serial.print(currentWeather.temperature, 1);
+        Serial.println("°C), deploying shade for protection");
+        
+        // Send hot weather alert
+        if (wifiConnected) {
+          String msg = "🔥 Very hot weather detected: " + String(currentWeather.temperature, 1) + 
+                       "°C. Shade protection activated for plant safety.";
+          sendNotification(msg, 1);
+        }
       } else {
-        Serial.println(" - High light detected, deploying shade");
+        Serial.println("☀️  -> High light detected, deploying shade for protection");
       }
       deployShade();
     } else {
-      // Normal conditions
+      Serial.println("🌤️  -> Normal conditions, retracting shade");
       retractShade();
     }
   }
+  
+  Serial.println("=== END DECISION ===\n");
 }
 
-void waterPlant(int plantNum) {
-  Serial.print("===== WATERING PLANT ");
-  Serial.print(plantNum);
-  Serial.println(" =====");
-  
-  // Update last watering time
-  if (plantNum == 1) {
-    lastWateringTime1 = millis();
-    currentlyWatering1 = true;
-    wateringStartTime1 = millis();
-  } else {
-    lastWateringTime2 = millis();
-    currentlyWatering2 = true;
-    wateringStartTime2 = millis();
-  }
-  
-  // Open valve and start pump
-  openValve(plantNum);
-  pumpOn();
-  
-  // Send notification
-  if (wifiConnected) {
-    int moisture = (plantNum == 1) ? soilMoisture1 : soilMoisture2;
-    String msg = "Watering Plant " + String(plantNum) + " started. Current moisture: " + 
-                 String(moisture) + "%";
-    sendNotification(msg, 0);  // INFO
-  }
-}
-
-void stopWatering(int plantNum) {
-  Serial.print("===== STOPPING WATERING PLANT ");
-  Serial.print(plantNum);
-  Serial.println(" =====");
-  
-  closeValve(plantNum);
-  
-  // Turn off pump if no valves are open
-  if (!valve1Open && !valve2Open) {
-    pumpOff();
-  }
-  
-  if (plantNum == 1) {
-    currentlyWatering1 = false;
-  } else {
-    currentlyWatering2 = false;
-  }
-}
-
-bool canWaterPlant(int plantNum) {
-  unsigned long lastWatering = (plantNum == 1) ? lastWateringTime1 : lastWateringTime2;
-  unsigned long timeSinceLastWatering = millis() - lastWatering;
-  
-  // Check if minimum time has passed since last watering
-  if (lastWatering == 0) {
-    return true;  // Never watered before
-  }
-  
-  return timeSinceLastWatering >= MIN_TIME_BETWEEN_WATERING_MS;
+bool canWaterPlant() {
+  if (lastWateringTime1 == 0) return true;
+  return (millis() - lastWateringTime1) >= MIN_TIME_BETWEEN_WATERING_MS;
 }
 
 // =============================================================================
@@ -635,12 +469,12 @@ bool canWaterPlant(int plantNum) {
 // =============================================================================
 
 bool updateWeather() {
-  Serial.println("Fetching weather data...");
+  Serial.println("🌍 Fetching weather data from OpenWeatherMap...");
   
   WiFiSSLClient weatherClient;
   
   if (!weatherClient.connect(WEATHER_API_HOST, WEATHER_API_PORT)) {
-    Serial.println("Weather API connection failed");
+    Serial.println("❌ Weather API connection failed");
     return false;
   }
   
@@ -667,14 +501,37 @@ bool updateWeather() {
     currentWeather = parseWeatherResponse(response);
     
     if (currentWeather.isValid) {
-      Serial.print("Weather: ");
-      Serial.print(currentWeather.temperature);
+      Serial.print("🌡️ Weather Update: ");
+      Serial.print(currentWeather.temperature, 1);
       Serial.print("°C, ");
+      Serial.print(currentWeather.humidity);
+      Serial.print("% humidity, ");
       Serial.println(currentWeather.description);
+      
+      // Send weather-based notifications
+      if (wifiConnected) {
+        // Very hot weather alert
+        if (currentWeather.temperature > TEMP_THRESHOLD_HIGH) {
+          String msg = "🔥 Very hot weather alert: " + String(currentWeather.temperature, 1) + 
+                       "°C. Enhanced plant protection activated.";
+          sendNotification(msg, 1);  // WARNING
+        }
+        
+        // Rain forecast notification
+        if (currentWeather.description.indexOf("rain") >= 0 || 
+            currentWeather.description.indexOf("drizzle") >= 0 ||
+            currentWeather.description.indexOf("shower") >= 0) {
+          String msg = "🌦️ Rain forecast: " + currentWeather.description + 
+                       ". System will utilize natural watering.";
+          sendNotification(msg, 0);  // INFO
+        }
+      }
+      
       return true;
     }
   }
   
+  Serial.println("❌ Failed to get valid weather data");
   return false;
 }
 
@@ -707,11 +564,17 @@ WeatherData parseWeatherResponse(const String& response) {
 }
 
 // =============================================================================
-// NOTIFICATION FUNCTIONS
+// WEBHOOK NOTIFICATION FUNCTIONS
 // =============================================================================
 
 bool sendNotification(const String& message, int type) {
-  if (!wifiConnected) return false;
+  if (!wifiConnected) {
+    Serial.println("📱 [NOTIFICATION] WiFi not connected, skipping notification");
+    return false;
+  }
+  
+  Serial.print("📱 [NOTIFICATION] Sending: ");
+  Serial.println(message);
   
   HttpClient http(sslClient, DISCORD_HOST, DISCORD_PORT);
   
@@ -721,7 +584,7 @@ bool sendNotification(const String& message, int type) {
   else if (type == 2) emoji = "🚨";  // CRITICAL
   else if (type == 3) emoji = "✅";  // SUCCESS
   
-  String formattedMsg = emoji + " **Plant Care** - " + message;
+  String formattedMsg = emoji + " **Plant Care System** - " + message;
   String content = "{\"content\":\"" + formattedMsg + "\"}";
   
   http.beginRequest();
@@ -735,18 +598,22 @@ bool sendNotification(const String& message, int type) {
   int statusCode = http.responseStatusCode();
   http.stop();
   
-  return (statusCode >= 200 && statusCode < 300);
+  bool success = (statusCode >= 200 && statusCode < 300);
+  Serial.print("📱 [NOTIFICATION] ");
+  Serial.println(success ? "✅ Sent successfully!" : "❌ Failed to send");
+  
+  return success;
 }
 
 void sendStatusUpdate() {
-  String status = "Status Update:\\n";
-  status += "Plant 1: " + String(soilMoisture1) + "% | ";
-  status += "Plant 2: " + String(soilMoisture2) + "% | ";
-  status += "Light: " + String((int)currentLux) + " lux | ";
-  status += "Rain: " + String(rainDetected ? "Yes" : "No");
+  String status = "📊 System Status Report:\\n";
+  status += "🌱 Soil Moisture: " + String(soilMoisture1) + "% | ";
+  status += "💡 Light: " + String((int)currentLux) + " lux | ";
+  status += "🌧️ Rain: " + String(rainDetected ? "Yes" : "No") + " | ";
+  status += "🏠 Shade: " + String(currentShadePosition) + "°";
   
   if (currentWeather.isValid) {
-    status += " | Temp: " + String(currentWeather.temperature, 1) + "°C";
+    status += "\\n🌡️ Weather: " + String(currentWeather.temperature, 1) + "°C, " + currentWeather.description;
   }
   
   sendNotification(status, 0);  // INFO
@@ -757,12 +624,58 @@ void sendStatusUpdate() {
 // =============================================================================
 
 void printSystemStatus() {
-  Serial.println("=== SYSTEM STATUS ===");
-  Serial.print("WiFi: ");
-  Serial.println(wifiConnected ? "Connected" : "Disconnected");
-  Serial.print("Lux Sensor: ");
-  Serial.println(luxSensorAvailable ? "Available" : "Not available");
-  Serial.print("Shade Position: ");
-  Serial.println(currentShadePosition);
-  Serial.println("=====================\n");
+  Serial.println("=== FULL SYSTEM STATUS ===");
+  Serial.print("🌐 WiFi: ");
+  Serial.println(wifiConnected ? "✅ Connected" : "❌ Disconnected");
+  Serial.print("💡 Lux Sensor: ");
+  Serial.println(luxSensorAvailable ? "✅ Available" : "❌ Not available");
+  Serial.print("🏠 Shade Position: ");
+  Serial.print(currentShadePosition);
+  Serial.println("°");
+  Serial.print("🌤️ Weather API: ");
+  Serial.println(wifiConnected ? "✅ Active" : "❌ Disabled");
+  Serial.print("📱 Notifications: ");
+  Serial.println(wifiConnected ? "✅ Active" : "❌ Disabled");
+  Serial.println("💧 Water System: 🧪 TEST MODE (Simulated)");
+  Serial.println("===============================\n");
+}
+
+void printSensorReadings() {
+  Serial.println("📊 --- SENSOR READINGS ---");
+  Serial.print("🌱 Soil Moisture: ");
+  Serial.print(soilMoisture1);
+  Serial.print("% ");
+  if (isDry()) Serial.print("[DRY 🟤]");
+  else if (isWet()) Serial.print("[WET 💙]");
+  else Serial.print("[OPTIMAL 💚]");
+  Serial.println();
+  
+  Serial.print("💡 Light Level: ");
+  Serial.print(currentLux, 0);
+  Serial.print(" lux ");
+  if (isHighLight()) Serial.print("[HIGH ☀️]");
+  else Serial.print("[Normal 🌤️]");
+  Serial.println();
+  
+  Serial.print("🌧️ Rain Sensor: ");
+  Serial.print(rainValue);
+  Serial.print(" ");
+  if (isRaining()) Serial.print("[RAIN DETECTED 🌧️]");
+  else Serial.print("[No rain ☀️]");
+  Serial.println();
+  
+  Serial.print("🏠 Shade Position: ");
+  Serial.print(currentShadePosition);
+  Serial.println("°");
+  
+  if (currentWeather.isValid) {
+    Serial.print("🌡️ Weather: ");
+    Serial.print(currentWeather.temperature, 1);
+    Serial.print("°C, ");
+    Serial.print(currentWeather.humidity);
+    Serial.print("%, ");
+    Serial.println(currentWeather.description);
+  }
+  
+  Serial.println("---------------------------");
 }

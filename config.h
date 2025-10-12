@@ -8,8 +8,8 @@
 // -----------------------------------------------------------------------------
 // WiFi Configuration
 // -----------------------------------------------------------------------------
-#define WIFI_SSID "iPhone"
-#define WIFI_PASSWORD "Mearck123"
+#define WIFI_SSID "mesh3"
+#define WIFI_PASSWORD "PLDTWIFI@dal7599"
 #define WIFI_TIMEOUT_MS 10000
 #define WIFI_RETRY_DELAY_MS 1000
 
