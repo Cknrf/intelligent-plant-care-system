@@ -45,7 +45,10 @@
 #define SOIL_MOISTURE_READ_INTERVAL_MS 10000  // Read every 10 seconds
 
 // Lux Sensor (TSL2561 via I2C - shared for both plants)
-#define LUX_THRESHOLD_HIGH 50000   // Above this = intense light, shade needed
+#define LUX_THRESHOLD_HIGH 15000   // Above this = intense light, shade needed
+                                    // Empirically determined from field calibration:
+                                    // - Max observed: 20,848 lux (partly cloudy)
+                                    // - Threshold set conservatively at 15,000 lux
 #define LUX_READ_INTERVAL_MS 10000  // Read every 10 seconds
 
 // Rain Sensor
